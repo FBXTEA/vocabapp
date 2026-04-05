@@ -8,6 +8,61 @@ export function getSavedWords() {
   return data ? JSON.parse(data) : []
 }
 
+// Migrate: auto-tag all words that have no tags but have a definition
+export function migrateAutoTags() {
+  const words = getSavedWords()
+  let changed = false
+  for (const w of words) {
+    if ((!w.tags || w.tags.length === 0) && w.definition?.meanings) {
+      // Inline category detection (same logic as guessCategory)
+      const allText = []
+      for (const m of w.definition.meanings) {
+        for (const d of m.definitions) {
+          if (d.definition) allText.push(d.definition.toLowerCase())
+          if (d.example) allText.push(d.example.toLowerCase())
+        }
+      }
+      const text = allText.join(' ')
+      const categories = {
+        'emotions': ['feel', 'emotion', 'mood', 'happy', 'sad', 'anger', 'joy', 'fear', 'love', 'hate', 'anxious', 'delight', 'sorrow', 'grief', 'pleasure', 'disgust', 'surprise', 'shame', 'pride', 'jealous', 'envy'],
+        'nature': ['plant', 'animal', 'tree', 'flower', 'bird', 'fish', 'forest', 'ocean', 'river', 'mountain', 'sky', 'weather', 'rain', 'wind', 'sun', 'earth', 'leaf', 'rock', 'sea', 'garden'],
+        'corps': ['body', 'hand', 'eye', 'head', 'heart', 'bone', 'skin', 'blood', 'muscle', 'organ', 'brain', 'leg', 'arm', 'face', 'mouth', 'tooth', 'finger', 'chest'],
+        'nourriture': ['food', 'eat', 'drink', 'cook', 'meal', 'taste', 'flavor', 'dish', 'fruit', 'meat', 'bread', 'sugar', 'salt', 'spice', 'recipe', 'kitchen'],
+        'travail': ['work', 'job', 'business', 'office', 'employ', 'company', 'manage', 'trade', 'profit', 'market', 'career', 'salary', 'industry', 'client', 'contract', 'negotiate'],
+        'social': ['person', 'people', 'friend', 'family', 'group', 'community', 'society', 'relationship', 'neighbor', 'stranger', 'crowd', 'culture'],
+        'mouvement': ['move', 'walk', 'run', 'jump', 'fly', 'swim', 'climb', 'fall', 'push', 'pull', 'throw', 'carry', 'drag', 'rush', 'crawl', 'slide'],
+        'communication': ['say', 'speak', 'tell', 'talk', 'write', 'read', 'listen', 'word', 'language', 'voice', 'message', 'express', 'declare', 'argue', 'persuade', 'convince'],
+        'temps': ['time', 'day', 'year', 'month', 'hour', 'moment', 'period', 'season', 'morning', 'evening', 'night', 'dawn', 'dusk', 'century', 'decade'],
+        'quantite': ['amount', 'number', 'quantity', 'size', 'measure', 'count', 'total', 'volume', 'weight', 'length', 'distance', 'degree', 'level', 'rate'],
+      }
+      let best = null, bestScore = 0
+      for (const [cat, kws] of Object.entries(categories)) {
+        let score = 0
+        for (const kw of kws) {
+          if (text.includes(kw)) score++
+          if (w.word.includes(kw)) score += 2
+        }
+        if (score > bestScore) { bestScore = score; best = cat }
+      }
+      if (best && bestScore >= 1) {
+        w.tags = [best]
+        changed = true
+      } else {
+        // Default tag based on part of speech
+        const pos = w.definition.meanings[0]?.partOfSpeech
+        if (pos) {
+          const posMap = { verb: 'action', noun: 'nom', adjective: 'adjectif', adverb: 'adverbe' }
+          w.tags = [posMap[pos] || pos]
+          changed = true
+        }
+      }
+    }
+  }
+  if (changed) {
+    localStorage.setItem(WORDS_KEY, JSON.stringify(words))
+  }
+}
+
 export function saveWord(wordEntry) {
   const words = getSavedWords()
   const exists = words.find(w => w.word.toLowerCase() === wordEntry.word.toLowerCase())

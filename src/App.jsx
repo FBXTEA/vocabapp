@@ -2,11 +2,11 @@ import { useState, useEffect } from 'react'
 import ReaderView from './components/ReaderView'
 import WordListView from './components/WordListView'
 import FlashcardsView from './components/FlashcardsView'
-import StatsView from './components/StatsView'
 import HomeView from './components/HomeView'
 import SettingsView from './components/SettingsView'
-import { getSettings, getWordsToReview } from './utils/storage'
+import { getSettings, getWordsToReview, saveWord, migrateAutoTags } from './utils/storage'
 import { I18nContext, getTranslations } from './utils/i18n'
+import { parseShareLink } from './utils/share'
 
 export default function App() {
   const [tab, setTab] = useState('home')
@@ -25,6 +25,24 @@ export default function App() {
     document.documentElement.classList.toggle('dark', dark)
   }, [dark])
 
+  // Migrate: auto-tag existing words without tags
+  useEffect(() => { migrateAutoTags() }, [])
+
+  // Handle shared word lists via URL
+  useEffect(() => {
+    const shared = parseShareLink()
+    if (shared && shared.length > 0) {
+      const count = shared.reduce((n, w) => {
+        return saveWord({ word: w.word, translation: w.translation, synonyms: w.synonyms, tags: w.tags, definition: null }) ? n + 1 : n
+      }, 0)
+      if (count > 0) {
+        alert(`${count} mot${count > 1 ? 's' : ''} importe${count > 1 ? 's' : ''} !`)
+        setTab('words')
+      }
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }, [])
+
   function openReader(title, text) { setReaderTitle(title); setReaderText(text) }
   function closeReader() { setReaderText(null); setReaderTitle('') }
 
@@ -39,14 +57,9 @@ export default function App() {
         <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
       </svg>
     )},
-    { id: 'flashcards', label: t.flashcards, badge: dueCount > 0 ? dueCount : null, icon: (active) => (
+    { id: 'flashcards', label: t.flashcards, icon: (active) => (
       <svg className="w-[22px] h-[22px]" fill={active ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={active ? 0 : 1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M6.429 9.75L2.25 12l4.179 2.25m0-4.5l5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L12 12.75 6.429 9.75m11.142 0l4.179 2.25-9.75 5.25-9.75-5.25 4.179-2.25" />
-      </svg>
-    )},
-    { id: 'stats', label: 'Stats', icon: (active) => (
-      <svg className="w-[22px] h-[22px]" fill={active ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={active ? 0 : 1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
       </svg>
     )},
   ]
@@ -99,7 +112,7 @@ export default function App() {
             {tab === 'home' && <HomeView onOpenReader={openReader} />}
             {tab === 'words' && <WordListView />}
             {tab === 'flashcards' && <FlashcardsView />}
-            {tab === 'stats' && <StatsView />}
+
           </div>
         </div>
 

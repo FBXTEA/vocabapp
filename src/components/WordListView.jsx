@@ -28,8 +28,9 @@ export default function WordListView() {
     setAdding(true)
     const data = await lookupWord(w)
     if (data) {
-      const saved = saveWord({ word: data.word, definition: data.definition, translation: data.translation, synonyms: data.synonyms })
-      if (saved) { refresh(); setNewWord(''); setShowAdd(false) }
+      const tags = data.autoTag ? [data.autoTag] : []
+      const saved = saveWord({ word: data.word, definition: data.definition, translation: data.translation, synonyms: data.synonyms, tags })
+      if (saved) { if (navigator.vibrate) navigator.vibrate(30); refresh(); setNewWord(''); setShowAdd(false) }
     } else {
       saveWord({ word: w.toLowerCase(), definition: null, translation: null })
       refresh(); setNewWord(''); setShowAdd(false)

@@ -28,12 +28,15 @@ export async function lookupWord(word) {
 
   const translationData = await fetchTranslation(cleanWord, enSynonyms.slice(0, 4), defAlternatives.slice(0, 3))
 
+  const autoTag = guessCategory(cleanWord, definition)
+
   return {
     word: cleanWord,
     definition,
     translation: translationData?.main || null,
     synonyms: translationData?.synonyms || [],
     audioUrl: definition?.audioUrl || null,
+    autoTag,
   }
 }
 
@@ -121,4 +124,58 @@ async function fetchTranslation(word, enSynonyms, defAlternatives) {
   const main = all[0]
   const synonyms = all.slice(1).filter(s => s !== main).slice(0, 6)
   return { main, synonyms }
+}
+
+const CATEGORY_KEYWORDS = {
+  'emotions': ['feel', 'emotion', 'mood', 'happy', 'sad', 'anger', 'joy', 'fear', 'love', 'hate', 'anxious', 'delight', 'sorrow', 'grief', 'pleasure', 'disgust', 'surprise', 'shame', 'pride', 'jealous', 'envy'],
+  'nature': ['plant', 'animal', 'tree', 'flower', 'bird', 'fish', 'forest', 'ocean', 'river', 'mountain', 'sky', 'weather', 'rain', 'wind', 'sun', 'earth', 'leaf', 'rock', 'sea', 'garden'],
+  'corps': ['body', 'hand', 'eye', 'head', 'heart', 'bone', 'skin', 'blood', 'muscle', 'organ', 'brain', 'leg', 'arm', 'face', 'mouth', 'tooth', 'finger', 'chest'],
+  'nourriture': ['food', 'eat', 'drink', 'cook', 'meal', 'taste', 'flavor', 'dish', 'fruit', 'meat', 'bread', 'sugar', 'salt', 'spice', 'recipe', 'kitchen'],
+  'travail': ['work', 'job', 'business', 'office', 'employ', 'company', 'manage', 'trade', 'profit', 'market', 'career', 'salary', 'industry', 'client', 'contract', 'negotiate'],
+  'social': ['person', 'people', 'friend', 'family', 'group', 'community', 'society', 'relationship', 'neighbor', 'stranger', 'crowd', 'culture'],
+  'mouvement': ['move', 'walk', 'run', 'jump', 'fly', 'swim', 'climb', 'fall', 'push', 'pull', 'throw', 'carry', 'drag', 'rush', 'crawl', 'slide'],
+  'communication': ['say', 'speak', 'tell', 'talk', 'write', 'read', 'listen', 'word', 'language', 'voice', 'message', 'express', 'declare', 'argue', 'persuade', 'convince'],
+  'temps': ['time', 'day', 'year', 'month', 'hour', 'moment', 'period', 'season', 'morning', 'evening', 'night', 'dawn', 'dusk', 'century', 'decade'],
+  'quantite': ['amount', 'number', 'quantity', 'size', 'measure', 'count', 'total', 'volume', 'weight', 'length', 'distance', 'degree', 'level', 'rate'],
+}
+
+export function guessCategory(word, definition) {
+  if (!definition?.meanings) return null
+
+  // Collect all text to analyze
+  const allText = []
+  for (const m of definition.meanings) {
+    for (const d of m.definitions) {
+      if (d.definition) allText.push(d.definition.toLowerCase())
+      if (d.example) allText.push(d.example.toLowerCase())
+    }
+  }
+  const text = allText.join(' ')
+
+  // Score each category
+  let bestCategory = null
+  let bestScore = 0
+
+  for (const [category, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
+    let score = 0
+    for (const kw of keywords) {
+      if (text.includes(kw)) score++
+      if (word.includes(kw)) score += 2
+    }
+    if (score > bestScore) {
+      bestScore = score
+      bestCategory = category
+    }
+  }
+
+  if (bestScore >= 1) return bestCategory
+
+  // Fallback: use part of speech as category
+  const pos = definition.meanings[0]?.partOfSpeech
+  if (pos) {
+    const posMap = { verb: 'action', noun: 'nom', adjective: 'adjectif', adverb: 'adverbe' }
+    return posMap[pos] || pos
+  }
+
+  return 'divers'
 }

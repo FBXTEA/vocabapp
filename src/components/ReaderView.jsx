@@ -75,13 +75,16 @@ export default function ReaderView({ title, text, onBack }) {
 
   function handleSave() {
     if (!popup?.data) return
+    const tags = popup.data.autoTag ? [popup.data.autoTag] : []
     const saved = saveWord({
       word: popup.data.word,
       definition: popup.data.definition,
       translation: popup.data.translation,
       synonyms: popup.data.synonyms || [],
+      tags,
     })
     if (saved) {
+      if (navigator.vibrate) navigator.vibrate(30)
       setPopup(prev => ({ ...prev, saved: true }))
     } else {
       setPopup(prev => ({ ...prev, alreadySaved: true }))

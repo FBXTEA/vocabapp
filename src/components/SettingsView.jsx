@@ -1,15 +1,18 @@
-import { useState, useRef } from 'react'
-import { getSettings, saveSettings, getSavedWords, getSavedTexts } from '../utils/storage'
+import { useState, useRef, useMemo } from 'react'
+import { getSettings, saveSettings, getSavedWords, getSavedTexts, getStatsData } from '../utils/storage'
 import { useT, LANGUAGES } from '../utils/i18n'
+import { generateShareLink } from '../utils/share'
 
 export default function SettingsView({ dark, setDark, lang, setLang }) {
   const t = useT()
+  const stats = useMemo(() => getStatsData(), [])
   const [profile, setProfile] = useState(() => {
     const s = getSettings()
     return { firstName: s.firstName || '', lastName: s.lastName || '', username: s.username || '', email: s.email || '' }
   })
   const [profileSaved, setProfileSaved] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [dataOpen, setDataOpen] = useState(false)
   const [exportDone, setExportDone] = useState(false)
   const [importDone, setImportDone] = useState(false)
   const importRef = useRef()
@@ -32,21 +35,13 @@ export default function SettingsView({ dark, setDark, lang, setLang }) {
   }
 
   function handleExport() {
-    const data = {
-      words: getSavedWords(),
-      texts: getSavedTexts(),
-      settings: getSettings(),
-      exportedAt: new Date().toISOString(),
-    }
+    const data = { words: getSavedWords(), texts: getSavedTexts(), settings: getSettings(), exportedAt: new Date().toISOString() }
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url
-    a.download = `vocabapp-export-${new Date().toISOString().slice(0, 10)}.json`
-    a.click()
+    a.href = url; a.download = `vocabapp-export-${new Date().toISOString().slice(0, 10)}.json`; a.click()
     URL.revokeObjectURL(url)
-    setExportDone(true)
-    setTimeout(() => setExportDone(false), 2000)
+    setExportDone(true); setTimeout(() => setExportDone(false), 2000)
   }
 
   function handleImport(e) {
@@ -58,34 +53,23 @@ export default function SettingsView({ dark, setDark, lang, setLang }) {
         const data = JSON.parse(ev.target.result)
         if (data.words) localStorage.setItem('vocabapp_words', JSON.stringify(data.words))
         if (data.texts) localStorage.setItem('vocabapp_texts', JSON.stringify(data.texts))
-        if (data.settings) {
-          const current = getSettings()
-          saveSettings({ ...current, ...data.settings })
-        }
+        if (data.settings) saveSettings({ ...getSettings(), ...data.settings })
         setImportDone(true)
         setTimeout(() => { setImportDone(false); window.location.reload() }, 1500)
-      } catch {
-        alert('Fichier invalide')
-      }
+      } catch { alert('Fichier invalide') }
     }
-    reader.readAsText(file)
-    e.target.value = ''
+    reader.readAsText(file); e.target.value = ''
   }
 
   function handleExportCSV() {
     const words = getSavedWords()
-    const header = 'mot,traduction,synonymes,tags\n'
-    const rows = words.map(w => {
-      const syns = (w.synonyms || []).join(' | ')
-      const tags = (w.tags || []).join(' | ')
-      return `"${w.word}","${w.translation || ''}","${syns}","${tags}"`
-    }).join('\n')
-    const blob = new Blob([header + rows], { type: 'text/csv' })
+    const rows = ['mot,traduction,synonymes,tags', ...words.map(w =>
+      `"${w.word}","${w.translation || ''}","${(w.synonyms || []).join(' | ')}","${(w.tags || []).join(' | ')}"`
+    )].join('\n')
+    const blob = new Blob([rows], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url
-    a.download = `vocabapp-mots-${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
+    a.href = url; a.download = `vocabapp-mots-${new Date().toISOString().slice(0, 10)}.csv`; a.click()
     URL.revokeObjectURL(url)
   }
 
@@ -93,15 +77,51 @@ export default function SettingsView({ dark, setDark, lang, setLang }) {
 
   return (
     <div className="p-5">
-      <div className="text-center mb-8 pt-2">
-        <h1 className="text-3xl font-extrabold text-stone-800 dark:text-white">{t.settings}</h1>
+      <div className="mb-6">
+        <h2 className="text-3xl font-serif italic text-stone-800 dark:text-white">{t.settings}</h2>
       </div>
 
       <div className="space-y-3">
-        {/* Profile */}
-        <div className="bg-white dark:bg-white/5 rounded-2xl border border-stone-200 dark:border-white/10 overflow-hidden">
-          <button onClick={() => setProfileOpen(!profileOpen)}
-            className="w-full p-4 flex items-center justify-between">
+
+        {/* Stats summary (always visible) */}
+        <div className="bg-white dark:bg-white/[0.03] rounded-2xl p-4 border border-stone-200/60 dark:border-white/5">
+          <p className="text-xs font-semibold text-stone-400 uppercase tracking-wider mb-3">Statistiques</p>
+          <div className="grid grid-cols-4 gap-2 mb-4">
+            {[
+              { value: stats.streak, label: 'Streak', emoji: '🔥' },
+              { value: stats.totalWords, label: 'Mots', emoji: '📚' },
+              { value: `${stats.successRate}%`, label: 'Reussite', emoji: '✅' },
+              { value: stats.dueNow, label: 'A revoir', emoji: '⏰' },
+            ].map(item => (
+              <div key={item.label} className="text-center">
+                <p className="text-lg font-extrabold text-stone-800 dark:text-white">{item.value}</p>
+                <p className="text-[10px] text-stone-400 mt-0.5">{item.emoji} {item.label}</p>
+              </div>
+            ))}
+          </div>
+          {/* Mastery bar */}
+          <div className="h-2 bg-stone-100 dark:bg-white/5 rounded-full overflow-hidden flex">
+            {stats.mastered > 0 && <div className="bg-emerald-400 h-full" style={{ width: `${(stats.mastered / Math.max(stats.totalWords, 1)) * 100}%` }} />}
+            {stats.learning > 0 && <div className="bg-amber-400 h-full" style={{ width: `${(stats.learning / Math.max(stats.totalWords, 1)) * 100}%` }} />}
+            {stats.newWords > 0 && <div className="bg-stone-200 dark:bg-slate-600 h-full" style={{ width: `${(stats.newWords / Math.max(stats.totalWords, 1)) * 100}%` }} />}
+          </div>
+          <div className="flex justify-between mt-2">
+            {[
+              { color: 'bg-emerald-400', label: 'Maitrises', count: stats.mastered },
+              { color: 'bg-amber-400', label: 'En cours', count: stats.learning },
+              { color: 'bg-stone-200 dark:bg-slate-600', label: 'Nouveaux', count: stats.newWords },
+            ].map(item => (
+              <div key={item.label} className="flex items-center gap-1.5">
+                <div className={`w-2 h-2 rounded-full ${item.color}`} />
+                <span className="text-[10px] text-stone-400">{item.count} {item.label.toLowerCase()}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Profile (collapsible) */}
+        <div className="bg-white dark:bg-white/[0.03] rounded-2xl border border-stone-200/60 dark:border-white/5 overflow-hidden">
+          <button onClick={() => setProfileOpen(!profileOpen)} className="w-full p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-stone-100 dark:bg-white/10 flex items-center justify-center">
                 <svg className="w-5 h-5 text-violet-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -110,9 +130,7 @@ export default function SettingsView({ dark, setDark, lang, setLang }) {
               </div>
               <div className="text-left">
                 <p className="font-semibold text-stone-800 dark:text-slate-100">{t.profile}</p>
-                {!profileOpen && profile.firstName && (
-                  <p className="text-xs text-stone-400">{profile.firstName} {profile.lastName}</p>
-                )}
+                {!profileOpen && profile.firstName && <p className="text-xs text-stone-400">{profile.firstName} {profile.lastName}</p>}
               </div>
             </div>
             <svg className={`w-5 h-5 text-stone-400 transition-transform ${profileOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -137,38 +155,8 @@ export default function SettingsView({ dark, setDark, lang, setLang }) {
           )}
         </div>
 
-        {/* Export / Import */}
-        <div className="bg-white dark:bg-white/5 rounded-2xl p-4 border border-stone-200 dark:border-white/10">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-xl bg-stone-100 dark:bg-white/10 flex items-center justify-center">
-              <svg className="w-5 h-5 text-violet-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-              </svg>
-            </div>
-            <p className="font-semibold text-stone-800 dark:text-slate-100">Exporter / Importer</p>
-          </div>
-          <div className="grid grid-cols-2 gap-2 mb-2">
-            <button onClick={handleExport}
-              className={`py-2.5 rounded-xl font-medium text-sm transition-all ${
-                exportDone ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-stone-100 dark:bg-white/5 text-stone-600 dark:text-slate-300 hover:bg-stone-200'}`}>
-              {exportDone ? 'Exporte !' : 'Exporter JSON'}
-            </button>
-            <button onClick={handleExportCSV}
-              className="py-2.5 rounded-xl font-medium text-sm bg-stone-100 dark:bg-white/5 text-stone-600 dark:text-slate-300 hover:bg-stone-200 transition-all">
-              Exporter CSV
-            </button>
-          </div>
-          <button onClick={() => importRef.current?.click()}
-            className={`w-full py-2.5 rounded-xl font-medium text-sm transition-all ${
-              importDone ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-indigo-50 dark:bg-violet-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100'}`}>
-            {importDone ? 'Importe ! Rechargement...' : 'Importer un fichier JSON'}
-          </button>
-          <input ref={importRef} type="file" accept=".json" onChange={handleImport} className="hidden" />
-          <p className="text-[11px] text-stone-400 mt-2 text-center">L'export JSON contient tous tes mots, textes et reglages</p>
-        </div>
-
         {/* Dark mode */}
-        <div className="bg-white dark:bg-white/5 rounded-2xl p-4 border border-stone-200 dark:border-white/10 flex items-center justify-between">
+        <div className="bg-white dark:bg-white/[0.03] rounded-2xl p-4 border border-stone-200/60 dark:border-white/5 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-stone-100 dark:bg-white/10 flex items-center justify-center">
               {dark ? (
@@ -192,8 +180,47 @@ export default function SettingsView({ dark, setDark, lang, setLang }) {
           </button>
         </div>
 
+        {/* Export / Import (collapsible) */}
+        <div className="bg-white dark:bg-white/[0.03] rounded-2xl border border-stone-200/60 dark:border-white/5 overflow-hidden">
+          <button onClick={() => setDataOpen(!dataOpen)} className="w-full p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-stone-100 dark:bg-white/10 flex items-center justify-center">
+                <svg className="w-5 h-5 text-violet-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+              </div>
+              <p className="font-semibold text-stone-800 dark:text-slate-100">Exporter / Importer</p>
+            </div>
+            <svg className={`w-5 h-5 text-stone-400 transition-transform ${dataOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+            </svg>
+          </button>
+          {dataOpen && (
+            <div className="px-4 pb-4 animate-fade-in">
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <button onClick={handleExport}
+                  className={`py-2.5 rounded-xl font-medium text-sm transition-all ${
+                    exportDone ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-stone-100 dark:bg-white/5 text-stone-600 dark:text-slate-300 hover:bg-stone-200'}`}>
+                  {exportDone ? 'Exporte !' : 'Exporter JSON'}
+                </button>
+                <button onClick={handleExportCSV}
+                  className="py-2.5 rounded-xl font-medium text-sm bg-stone-100 dark:bg-white/5 text-stone-600 dark:text-slate-300 hover:bg-stone-200 transition-all">
+                  Exporter CSV
+                </button>
+              </div>
+              <button onClick={() => importRef.current?.click()}
+                className={`w-full py-2.5 rounded-xl font-medium text-sm transition-all ${
+                  importDone ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-violet-50 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400 hover:bg-violet-100'}`}>
+                {importDone ? 'Importe ! Rechargement...' : 'Importer un fichier JSON'}
+              </button>
+              <input ref={importRef} type="file" accept=".json" onChange={handleImport} className="hidden" />
+              <p className="text-[11px] text-stone-400 mt-2 text-center">L'export JSON contient tous tes mots, textes et reglages</p>
+            </div>
+          )}
+        </div>
+
         {/* Language - coming soon */}
-        <div className="bg-white dark:bg-white/5 rounded-2xl p-4 border border-stone-200 dark:border-white/10 opacity-50">
+        <div className="bg-white dark:bg-white/[0.03] rounded-2xl p-4 border border-stone-200/60 dark:border-white/5 opacity-50">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-stone-100 dark:bg-white/10 flex items-center justify-center">
@@ -206,34 +233,44 @@ export default function SettingsView({ dark, setDark, lang, setLang }) {
                 <p className="text-sm text-stone-500 dark:text-slate-400">{t.comingSoon}</p>
               </div>
             </div>
-            <span className="text-xs font-medium text-violet-500 bg-indigo-50 dark:bg-violet-500/10 px-2 py-1 rounded-lg">Soon</span>
+            <span className="text-xs font-medium text-violet-500 bg-violet-50 dark:bg-violet-500/10 px-2 py-1 rounded-lg">Soon</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {LANGUAGES.map(l => (
-              <span key={l.code}
-                className={`text-sm px-3 py-1.5 rounded-xl font-medium flex items-center gap-1.5 ${
-                  l.code === 'fr' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-stone-100 dark:bg-white/5 text-stone-600 dark:text-slate-300'}`}>
-                <span>{l.flag}</span>
-                {l.label}
+              <span key={l.code} className={`text-sm px-3 py-1.5 rounded-xl font-medium flex items-center gap-1.5 ${
+                l.code === 'fr' ? 'bg-violet-600 text-white shadow-sm' : 'bg-stone-100 dark:bg-white/5 text-stone-600 dark:text-slate-300'}`}>
+                <span>{l.flag}</span>{l.label}
               </span>
             ))}
           </div>
         </div>
 
-        {/* Share - coming soon */}
-        <div className="bg-white dark:bg-white/5 rounded-2xl p-4 border border-stone-200 dark:border-white/10 flex items-center justify-between opacity-50">
-          <div className="flex items-center gap-3">
+        {/* Share */}
+        <div className="bg-white dark:bg-white/[0.03] rounded-2xl p-4 border border-stone-200/60 dark:border-white/5">
+          <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 rounded-xl bg-stone-100 dark:bg-white/10 flex items-center justify-center">
               <svg className="w-5 h-5 text-violet-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
               </svg>
             </div>
-            <div>
-              <p className="font-semibold text-stone-800 dark:text-slate-100">{t.shareWords}</p>
-              <p className="text-sm text-stone-500 dark:text-slate-400">{t.comingSoon}</p>
-            </div>
+            <p className="font-semibold text-stone-800 dark:text-slate-100">{t.shareWords}</p>
           </div>
-          <span className="text-xs font-medium text-violet-500 bg-indigo-50 dark:bg-violet-500/10 px-2 py-1 rounded-lg">Soon</span>
+          <button onClick={() => {
+            const link = generateShareLink()
+            if (navigator.share) {
+              navigator.share({ title: 'Mes mots - VocabApp', url: link })
+            } else {
+              navigator.clipboard.writeText(link)
+              alert('Lien copie !')
+            }
+          }}
+            className="w-full py-2.5 rounded-xl font-medium text-sm bg-violet-50 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400 hover:bg-violet-100 transition-all flex items-center justify-center gap-2">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-1.135a4.5 4.5 0 00-1.242-7.244l-4.5-4.5a4.5 4.5 0 00-6.364 6.364L4.343 8.22" />
+            </svg>
+            Generer un lien de partage
+          </button>
+          <p className="text-[11px] text-stone-400 mt-2 text-center">Tes amis pourront importer ta liste de mots</p>
         </div>
       </div>
     </div>
